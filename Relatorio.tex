@@ -1,0 +1,669 @@
+% ============================================================================
+% Relatório Técnico — Refatoração Flask CRUD: SQLite → PostgreSQL + Docker
+% ============================================================================
+\documentclass[12pt,a4paper]{article}
+
+% --- Pacotes ---
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[brazil]{babel}
+\usepackage{geometry}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+
+% --- Layout ---
+\geometry{left=2.5cm, right=2.5cm, top=2.5cm, bottom=2.5cm}
+
+% --- Cores personalizadas ---
+\definecolor{codebg}{RGB}{245,245,245}
+\definecolor{codeframe}{RGB}{200,200,200}
+\definecolor{codekeyword}{RGB}{0,0,180}
+\definecolor{codecomment}{RGB}{0,128,0}
+\definecolor{codestring}{RGB}{163,21,21}
+
+% --- Configuração do lstlisting ---
+\lstset{
+  backgroundcolor=\color{codebg},
+  frame=single,
+  rulecolor=\color{codeframe},
+  basicstyle=\ttfamily\footnotesize,
+  keywordstyle=\color{codekeyword}\bfseries,
+  commentstyle=\color{codecomment}\itshape,
+  stringstyle=\color{codestring},
+  breaklines=true,
+  breakatwhitespace=false,
+  showstringspaces=false,
+  tabsize=2,
+  captionpos=b,
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  numbersep=8pt,
+  xleftmargin=15pt,
+  framexleftmargin=15pt,
+  literate=
+    {á}{{\'a}}1 {é}{{\'e}}1 {í}{{\'i}}1 {ó}{{\'o}}1 {ú}{{\'u}}1
+    {ã}{{\~a}}1 {õ}{{\~o}}1 {ç}{{\c{c}}}1
+    {Á}{{\'A}}1 {É}{{\'E}}1 {Í}{{\'I}}1 {Ó}{{\'O}}1 {Ú}{{\'U}}1
+    {Ã}{{\~A}}1 {Õ}{{\~O}}1 {Ç}{{\c{C}}}1
+}
+
+% --- Cabeçalho e rodapé ---
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small Relatório Técnico — Refatoração Flask CRUD}
+\fancyhead[R]{\small\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+% --- Hyperlinks ---
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!70!black,
+  urlcolor=blue!70!black,
+  citecolor=blue!70!black
+}
+
+% ============================================================================
+\begin{document}
+
+% --- Capa ---
+\begin{titlepage}
+  \centering
+  \vspace*{3cm}
+  {\Huge\bfseries Relatório Técnico\par}
+  \vspace{0.5cm}
+  {\LARGE Refatoração de Aplicação Flask CRUD\par}
+  \vspace{0.3cm}
+  {\Large SQLite $\rightarrow$ PostgreSQL + Docker\par}
+  \vspace{2cm}
+  {\large
+    \textbf{Repositório:}\\[4pt]
+    \url{https://github.com/iamsamimsarkar/flask-crud-sqlite.git}
+  \par}
+  \vspace{2cm}
+  {\large \today\par}
+  \vfill
+\end{titlepage}
+
+% --- Sumário ---
+\tableofcontents
+\newpage
+
+% ============================================================================
+% SEÇÃO 1 — Contextualização e Motivação
+% ============================================================================
+\section{Contextualização e Motivação}
+\label{sec:contextualizacao}
+
+\subsection{Descrição do Projeto Original}
+
+O repositório
+\href{https://github.com/iamsamimsarkar/flask-crud-sqlite.git}{\texttt{flask-crud-sqlite}}
+contém uma aplicação web construída com o \textit{framework} Flask (Python) que implementa
+operações CRUD (\textit{Create, Read, Update, Delete}) sobre uma entidade \texttt{User}.
+
+A arquitetura original apresenta as seguintes características:
+
+\begin{itemize}[nosep]
+  \item \textbf{Banco de dados:} SQLite, armazenado localmente no diretório
+        \texttt{instance/database.db}.
+  \item \textbf{ORM:} Flask-SQLAlchemy, com modelo único (\texttt{User}) contendo os
+        campos \texttt{id}, \texttt{name}, \texttt{city} e \texttt{contact}.
+  \item \textbf{Servidor:} Servidor de desenvolvimento embutido do Flask
+        (\texttt{app.run(debug=True)}).
+  \item \textbf{Configuração:} Valores \textit{hard-coded} diretamente no arquivo
+        \texttt{app.py} (string de conexão, chave secreta).
+  \item \textbf{Infraestrutura:} Nenhuma — a aplicação é executada diretamente na
+        máquina do desenvolvedor, sem padronização de ambiente.
+\end{itemize}
+
+\subsection{Cenário Atual vs.\ Cenário Alvo}
+
+A tabela~\ref{tab:comparativo} resume a comparação entre o estado atual e o estado
+desejado após a refatoração.
+
+\begin{table}[h!]
+  \centering
+  \caption{Comparativo: estado atual vs.\ estado alvo.}
+  \label{tab:comparativo}
+  \begin{tabular}{lll}
+    \toprule
+    \textbf{Aspecto}       & \textbf{Atual}          & \textbf{Alvo} \\
+    \midrule
+    Banco de dados         & SQLite (arquivo local)  & PostgreSQL (contêiner) \\
+    Configuração           & \textit{Hard-coded}     & Variáveis de ambiente \\
+    Ambiente de execução   & Máquina local           & Docker / Docker Compose \\
+    Reprodutibilidade      & Baixa                   & Alta \\
+    Escalabilidade         & Limitada                & Horizontal (contêineres) \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Benefícios Esperados}
+
+\begin{enumerate}[nosep]
+  \item \textbf{Escalabilidade:} O PostgreSQL suporta conexões concorrentes,
+        transações ACID completas e recursos avançados de indexação, tornando a
+        aplicação pronta para cenários de produção.
+  \item \textbf{Ambiente padronizado:} Com Docker e Docker Compose, qualquer membro
+        da equipe pode reproduzir o ambiente completo (API + banco) com um único
+        comando (\texttt{docker-compose up}), eliminando problemas do tipo
+        \textit{``funciona na minha máquina''}.
+  \item \textbf{Facilidade de deploy:} A conteinerização permite integração direta
+        com pipelines de CI/CD e plataformas de orquestração como Kubernetes, AWS ECS
+        ou Google Cloud Run.
+  \item \textbf{Segurança:} Credenciais e configurações sensíveis passam a ser
+        gerenciadas por variáveis de ambiente, removendo-as do código-fonte.
+\end{enumerate}
+
+% ============================================================================
+% SEÇÃO 2 — Ambiente e Pré-requisitos
+% ============================================================================
+\section{Ambiente e Pré-requisitos}
+\label{sec:prerequisitos}
+
+\subsection{Dependências de Software}
+
+A tabela~\ref{tab:dependencias} lista todas as ferramentas e bibliotecas necessárias
+para reproduzir o ambiente refatorado.
+
+\begin{table}[h!]
+  \centering
+  \caption{Mapeamento de dependências do projeto.}
+  \label{tab:dependencias}
+  \begin{tabular}{llp{7cm}}
+    \toprule
+    \textbf{Dependência}         & \textbf{Versão mínima} & \textbf{Finalidade} \\
+    \midrule
+    Python                       & 3.11                   & Interpretador da aplicação Flask. \\
+    pip                          & 23.0                   & Gerenciador de pacotes Python. \\
+    Flask                        & 3.0                    & \textit{Framework} web para a API. \\
+    Flask-SQLAlchemy             & 3.1                    & ORM para abstração do banco de dados. \\
+    psycopg2-binary              & 2.9                    & Driver PostgreSQL para Python/SQLAlchemy. \\
+    gunicorn                     & 21.2                   & Servidor WSGI de produção. \\
+    Docker Engine                & 24.0                   & \textit{Runtime} de contêineres. \\
+    Docker Compose               & 2.20                   & Orquestrador de contêineres multi-serviço. \\
+    Git                          & 2.40                   & Controle de versão do código-fonte. \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Verificação do Ambiente}
+
+Antes de iniciar a refatoração, verifique se as ferramentas estão instaladas
+executando os comandos abaixo no terminal:
+
+\begin{lstlisting}[language=bash, caption={Verificação das dependências do ambiente.}]
+python --version        # Python 3.11+
+pip --version           # pip 23.0+
+docker --version        # Docker Engine 24.0+
+docker compose version  # Docker Compose v2.20+
+git --version           # Git 2.40+
+\end{lstlisting}
+
+\subsection{Estrutura Original do Projeto}
+
+A estrutura de diretórios do repositório clonado é apresentada a seguir:
+
+\begin{lstlisting}[caption={Árvore de diretórios do projeto original.}]
+flask-crud-sqlite/
+|-- app.py                  # Aplicacao Flask (ponto de entrada)
+|-- instance/
+|   +-- database.db         # Banco SQLite (gerado automaticamente)
+|-- static/
+|   +-- style.css           # Folha de estilos
+|-- templates/
+|   |-- index.html          # Listagem de usuarios
+|   |-- add_user.html       # Formulario de cadastro
+|   +-- edit_user.html      # Formulario de edicao
++-- README.md
+\end{lstlisting}
+
+% ============================================================================
+% SEÇÃO 3 — Passo a Passo Executável
+% ============================================================================
+\section{Passo a Passo Executável}
+\label{sec:passo-a-passo}
+
+Esta seção apresenta, de forma sequencial e reprodutível, todas as modificações
+realizadas no projeto. Cada subseção contém o código completo do arquivo alterado
+ou criado, acompanhado de explicações técnicas.
+
+% --------------------------------------------------------------------------
+\subsection{Passo 1 — Atualização das Dependências (\texttt{requirements.txt})}
+
+O arquivo \texttt{requirements.txt} foi criado (o projeto original não o possuía)
+com as seguintes dependências:
+
+\begin{lstlisting}[language=Python, caption={\texttt{requirements.txt} — dependências do projeto refatorado.}]
+Flask==3.0.3
+Flask-SQLAlchemy==3.1.1
+psycopg2-binary==2.9.9
+gunicorn==22.0.0
+\end{lstlisting}
+
+\textbf{Justificativas:}
+\begin{itemize}[nosep]
+  \item \texttt{psycopg2-binary}: driver PostgreSQL para Python, necessário para que
+        o SQLAlchemy se comunique com o PostgreSQL.
+  \item \texttt{gunicorn}: servidor WSGI de produção que substitui o servidor de
+        desenvolvimento embutido do Flask, oferecendo melhor desempenho e
+        estabilidade.
+\end{itemize}
+
+% --------------------------------------------------------------------------
+\subsection{Passo 2 — Refatoração do Código Fonte (\texttt{app.py})}
+
+O arquivo \texttt{app.py} foi modificado para ler configurações de variáveis de
+ambiente, mantendo compatibilidade retroativa com SQLite como \textit{fallback}
+para desenvolvimento local.
+
+\begin{lstlisting}[language=Python, caption={\texttt{app.py} — código refatorado com suporte a variáveis de ambiente.}]
+import os
+from flask import Flask, request, redirect, url_for, render_template
+from flask_sqlalchemy import SQLAlchemy
+
+app = Flask(__name__)
+
+# --- Configuração via variáveis de ambiente ---
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get(
+    'DATABASE_URL',
+    'sqlite:///database.db'  # fallback para desenvolvimento local
+)
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key')
+
+db = SQLAlchemy(app)
+
+
+class User(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    city = db.Column(db.String(120), nullable=False)
+    contact = db.Column(db.String(100), nullable=False)
+
+
+with app.app_context():
+    db.create_all()
+
+
+@app.route("/")
+def index():
+    users = User.query.all()
+    return render_template("index.html", users=users)
+
+
+@app.route("/add", methods=['GET', 'POST'])
+def add_user():
+    if request.method == "POST":
+        name = request.form['name']
+        city = request.form['city']
+        contact = request.form['contact']
+        new_user = User(name=name, city=city, contact=contact)
+        try:
+            db.session.add(new_user)
+            db.session.commit()
+            return redirect(url_for("index"))
+        except Exception:
+            db.session.rollback()
+            return 'Error adding User!'
+    return render_template("add_user.html")
+
+
+@app.route("/edit/<int:id>", methods=['GET', 'POST'])
+def edit_user(id):
+    user = User.query.get_or_404(id)
+    if request.method == "POST":
+        user.name = request.form['name']
+        user.city = request.form['city']
+        user.contact = request.form['contact']
+        db.session.commit()
+        return redirect(url_for('index'))
+    return render_template("edit_user.html", user=user)
+
+
+@app.route("/delete/<int:id>")
+def delete_user(id):
+    user = User.query.get_or_404(id)
+    db.session.delete(user)
+    db.session.commit()
+    return redirect(url_for('index'))
+
+
+if __name__ == "__main__":
+    app.run(debug=True, host='0.0.0.0')
+\end{lstlisting}
+
+\textbf{Alterações principais em relação ao código original:}
+\begin{enumerate}[nosep]
+  \item \texttt{SQLALCHEMY\_DATABASE\_URI} agora lê a variável de ambiente
+        \texttt{DATABASE\_URL}. Se não estiver definida, utiliza SQLite como
+        \textit{fallback}, preservando a compatibilidade local.
+  \item \texttt{SECRET\_KEY} também é externalizada via variável de ambiente.
+  \item Adicionado \texttt{db.session.rollback()} no bloco \texttt{except} para
+        garantir integridade transacional em caso de erro.
+  \item \texttt{User.query.get()} substituído por \texttt{User.query.get\_or\_404()}
+        para retornar HTTP 404 quando o recurso não existir.
+  \item \texttt{host='0.0.0.0'} adicionado ao \texttt{app.run()} para permitir
+        conexões de fora do contêiner Docker.
+\end{enumerate}
+
+% --------------------------------------------------------------------------
+\subsection{Passo 3 — Criação do Dockerfile}
+
+O \texttt{Dockerfile} utiliza a técnica de \textit{multi-stage build} para produzir
+uma imagem final enxuta e segura.
+
+\begin{lstlisting}[language=bash, caption={\texttt{Dockerfile} — build multi-estágio otimizado.}]
+# ---- Estágio 1: Construção ----
+FROM python:3.11-slim AS builder
+
+WORKDIR /app
+
+# Instala dependências do sistema para compilar psycopg2
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends gcc libpq-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+# ---- Estágio 2: Produção ----
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Instala apenas a libpq (runtime)
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends libpq5 && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copia as dependências instaladas do estágio anterior
+COPY --from=builder /install /usr/local
+
+# Copia o código da aplicação
+COPY . .
+
+# Cria um usuário não-root para segurança
+RUN useradd --create-home appuser
+USER appuser
+
+EXPOSE 5000
+
+# Inicia com Gunicorn (servidor WSGI de produção)
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "3", "app:app"]
+\end{lstlisting}
+
+\textbf{Decisões de projeto:}
+\begin{itemize}[nosep]
+  \item \textbf{Multi-stage build:} O estágio \texttt{builder} contém compiladores
+        (\texttt{gcc}, \texttt{libpq-dev}) necessários apenas durante a instalação
+        do \texttt{psycopg2-binary}. A imagem final não carrega esses pacotes,
+        resultando em uma imagem significativamente menor.
+  \item \textbf{Usuário não-root:} O contêiner executa sob o usuário
+        \texttt{appuser}, seguindo o princípio de menor privilégio.
+  \item \textbf{Gunicorn com 3 workers:} Configuração adequada para ambientes de
+        desenvolvimento e pequena produção. Em produção real, o número de
+        \textit{workers} deve ser ajustado conforme os recursos disponíveis
+        (recomendação: \texttt{2 * num\_cpus + 1}).
+\end{itemize}
+
+% --------------------------------------------------------------------------
+\subsection{Passo 4 — Criação do Docker Compose (\texttt{docker-compose.yml})}
+
+O arquivo \texttt{docker-compose.yml} orquestra dois serviços: o banco PostgreSQL
+e a aplicação Flask.
+
+\begin{lstlisting}[language=bash, caption={\texttt{docker-compose.yml} — orquestração dos serviços.}]
+version: "3.8"
+
+services:
+  # ---- Serviço: Banco de dados PostgreSQL ----
+  db:
+    image: postgres:16-alpine
+    container_name: flask_crud_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: flask_user
+      POSTGRES_PASSWORD: flask_pass
+      POSTGRES_DB: flask_crud
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U flask_user -d flask_crud"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ---- Serviço: Aplicação Flask ----
+  web:
+    build: .
+    container_name: flask_crud_web
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      DATABASE_URL: postgresql://flask_user:flask_pass@db:5432/flask_crud
+      SECRET_KEY: super-secret-key-change-in-production
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+\end{lstlisting}
+
+\textbf{Pontos importantes:}
+\begin{itemize}[nosep]
+  \item \textbf{Healthcheck no PostgreSQL:} O serviço \texttt{web} só inicia após o
+        PostgreSQL reportar que está pronto para aceitar conexões, evitando erros de
+        conexão durante a inicialização.
+  \item \textbf{Volume nomeado (\texttt{pgdata}):} Os dados do PostgreSQL persistem
+        entre reinicializações dos contêineres.
+  \item \textbf{Rede interna:} O Docker Compose cria automaticamente uma rede
+        \textit{bridge} entre os serviços. O serviço \texttt{web} referencia o banco
+        pelo hostname \texttt{db} na string de conexão.
+\end{itemize}
+
+% --------------------------------------------------------------------------
+\subsection{Passo 5 — Arquivo \texttt{.dockerignore}}
+
+Para otimizar o contexto de build, foi criado um \texttt{.dockerignore}:
+
+\begin{lstlisting}[caption={\texttt{.dockerignore} — arquivos excluídos do build.}]
+__pycache__/
+*.pyc
+*.pyo
+instance/
+.env
+*.db
+.git/
+.gitignore
+*.md
+Relatorio.tex
+\end{lstlisting}
+
+% --------------------------------------------------------------------------
+\subsection{Passo 6 — Comandos de Operação}
+
+\subsubsection{Subir a aplicação}
+
+\begin{lstlisting}[language=bash, caption={Comandos para construir e iniciar os contêineres.}]
+# Construir as imagens e subir em modo detached
+docker compose up --build -d
+
+# Verificar se os contêineres estão rodando
+docker compose ps
+
+# Acompanhar os logs em tempo real
+docker compose logs -f
+\end{lstlisting}
+
+Após a execução, a aplicação estará disponível em \texttt{http://localhost:5000}.
+
+\subsubsection{Derrubar a aplicação}
+
+\begin{lstlisting}[language=bash, caption={Comandos para parar e remover os contêineres.}]
+# Parar os contêineres (preserva dados do volume)
+docker compose down
+
+# Parar e REMOVER os volumes (apaga dados do PostgreSQL)
+docker compose down -v
+\end{lstlisting}
+
+\subsubsection{Estrutura Final do Projeto}
+
+Após todas as modificações, a árvore de diretórios do projeto fica:
+
+\begin{lstlisting}[caption={Árvore de diretórios do projeto refatorado.}]
+flask-crud-sqlite/
+|-- app.py                  # Aplicacao Flask (refatorado)
+|-- requirements.txt        # Dependências Python (novo)
+|-- Dockerfile              # Build da imagem Docker (novo)
+|-- docker-compose.yml      # Orquestração dos servicos (novo)
+|-- .dockerignore           # Exclusões do build Docker (novo)
+|-- static/
+|   +-- style.css           # Folha de estilos
+|-- templates/
+|   |-- index.html          # Listagem de usuarios
+|   |-- add_user.html       # Formulario de cadastro
+|   +-- edit_user.html      # Formulario de edicao
++-- README.md
+\end{lstlisting}
+
+% ============================================================================
+% SEÇÃO 4 — Plano de Rollback e Testes de Validação
+% ============================================================================
+\section{Plano de Rollback e Testes de Validação}
+\label{sec:rollback}
+
+\subsection{Testes de Validação}
+
+Após subir a aplicação com \texttt{docker compose up --build -d}, execute os
+seguintes testes para validar que tudo funciona corretamente.
+
+\subsubsection{Teste 1 — Verificar status dos contêineres}
+
+\begin{lstlisting}[language=bash, caption={Verificação do estado dos contêineres.}]
+docker compose ps
+\end{lstlisting}
+
+\textbf{Resultado esperado:} Ambos os serviços (\texttt{flask\_crud\_db} e
+\texttt{flask\_crud\_web}) devem aparecer com status \texttt{Up} e, no caso do
+banco, \texttt{(healthy)}.
+
+\subsubsection{Teste 2 — Acessar a página inicial via navegador}
+
+Abra \texttt{http://localhost:5000} no navegador. A página de listagem de usuários
+deve ser exibida corretamente, sem erros.
+
+\subsubsection{Teste 3 — Testar o CRUD via linha de comando}
+
+\begin{lstlisting}[language=bash, caption={Testes CRUD via \texttt{curl}.}]
+# Teste de leitura (GET na página inicial)
+curl -s -o /dev/null -w "%{http_code}" http://localhost:5000/
+# Esperado: 200
+
+# Teste de criação (POST para adicionar usuário)
+curl -X POST http://localhost:5000/add \
+  -d "name=Teste&city=Brasilia&contact=teste@email.com" \
+  -w "\n%{http_code}"
+# Esperado: 302 (redirect após criação bem-sucedida)
+
+# Teste de leitura após criação
+curl -s http://localhost:5000/ | grep "Teste"
+# Esperado: o nome "Teste" deve aparecer no HTML retornado
+\end{lstlisting}
+
+\subsubsection{Teste 4 — Verificar conexão com o PostgreSQL}
+
+\begin{lstlisting}[language=bash, caption={Verificação direta no banco PostgreSQL.}]
+docker compose exec db psql -U flask_user -d flask_crud -c "\dt"
+\end{lstlisting}
+
+\textbf{Resultado esperado:} A tabela \texttt{user} deve aparecer listada,
+confirmando que o SQLAlchemy criou o esquema corretamente no PostgreSQL.
+
+\subsubsection{Teste 5 — Verificar logs da aplicação}
+
+\begin{lstlisting}[language=bash, caption={Inspeção de logs para identificar erros.}]
+docker compose logs web
+\end{lstlisting}
+
+\textbf{Resultado esperado:} Os logs do Gunicorn devem indicar que os
+\textit{workers} foram inicializados com sucesso, sem mensagens de erro de conexão
+com o banco.
+
+% --------------------------------------------------------------------------
+\subsection{Plano de Rollback}
+
+Caso a refatoração apresente problemas ou seja necessário reverter para o estado
+original, siga os passos abaixo:
+
+\subsubsection{Passo 1 — Derrubar a infraestrutura Docker}
+
+\begin{lstlisting}[language=bash, caption={Remoção completa dos contêineres e volumes.}]
+docker compose down -v
+\end{lstlisting}
+
+Este comando para todos os contêineres, remove-os e apaga o volume
+\texttt{pgdata} com os dados do PostgreSQL.
+
+\subsubsection{Passo 2 — Reverter o código-fonte via Git}
+
+\begin{lstlisting}[language=bash, caption={Rollback do código via Git.}]
+# Reverter todos os arquivos modificados para o último commit
+git checkout -- .
+
+# Remover arquivos novos não rastreados (Dockerfile, docker-compose.yml, etc.)
+git clean -fd
+\end{lstlisting}
+
+\subsubsection{Passo 3 — Verificar o estado do repositório}
+
+\begin{lstlisting}[language=bash, caption={Confirmação do estado limpo do repositório.}]
+git status
+\end{lstlisting}
+
+\textbf{Resultado esperado:} O Git deve reportar \texttt{nothing to commit,
+working tree clean}, confirmando que o repositório voltou ao estado original.
+
+\subsubsection{Passo 4 — Testar a aplicação original}
+
+\begin{lstlisting}[language=bash, caption={Execução da aplicação original com SQLite.}]
+pip install flask flask-sqlalchemy
+python app.py
+\end{lstlisting}
+
+Acesse \texttt{http://localhost:5000} para confirmar que a versão original
+funciona normalmente com SQLite.
+
+% --------------------------------------------------------------------------
+\subsection{Resumo do Fluxo de Rollback}
+
+\begin{table}[h!]
+  \centering
+  \caption{Resumo dos comandos de rollback.}
+  \label{tab:rollback}
+  \begin{tabular}{clp{7cm}}
+    \toprule
+    \textbf{Ordem} & \textbf{Comando} & \textbf{Efeito} \\
+    \midrule
+    1 & \texttt{docker compose down -v} & Remove contêineres, redes e volumes. \\
+    2 & \texttt{git checkout -- .}      & Reverte arquivos modificados. \\
+    3 & \texttt{git clean -fd}          & Remove arquivos não rastreados. \\
+    4 & \texttt{git status}             & Confirma repositório limpo. \\
+    5 & \texttt{python app.py}          & Testa a aplicação original. \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+% ============================================================================
+\end{document}

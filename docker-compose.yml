@@ -1,0 +1,38 @@
+version: "3.8"
+
+services:
+  # ---- Serviço: Banco de dados PostgreSQL ----
+  db:
+    image: postgres:16-alpine
+    container_name: flask_crud_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: flask_user
+      POSTGRES_PASSWORD: flask_pass
+      POSTGRES_DB: flask_crud
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U flask_user -d flask_crud"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ---- Serviço: Aplicação Flask ----
+  web:
+    build: .
+    container_name: flask_crud_web
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      DATABASE_URL: postgresql://flask_user:flask_pass@db:5432/flask_crud
+      SECRET_KEY: super-secret-key-change-in-production
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:
