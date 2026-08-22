@@ -75,15 +75,22 @@
 \begin{titlepage}
   \centering
   \vspace*{3cm}
-  {\Huge\bfseries Relatório Técnico\par}
+  {\Huge\bfseries Guia Técnico Executável e Reprodutível\par}
   \vspace{0.5cm}
-  {\LARGE Refatoração de Aplicação Flask CRUD\par}
+  {\Large\bfseries Aluno: Kevin Grünfeld Strey\par}
+  \vspace{0.5cm}
+  {\LARGE Refatoração de CRUD implementado com Flask\par}
   \vspace{0.3cm}
   {\Large SQLite $\rightarrow$ PostgreSQL + Docker\par}
   \vspace{2cm}
   {\large
-    \textbf{Repositório:}\\[4pt]
+    \textbf{Repositório Original:}\\[4pt]
     \url{https://github.com/iamsamimsarkar/flask-crud-sqlite.git}
+  \par}
+  \vspace{0.65cm}
+  {\large
+    \textbf{Repositório Refatorado:}\\[4pt]
+    \url{https://github.com/KevinStrey/flask-crud-sqlite}
   \par}
   \vspace{2cm}
   {\large \today\par}
@@ -136,9 +143,8 @@ desejado após a refatoração.
     \textbf{Aspecto}       & \textbf{Atual}          & \textbf{Alvo} \\
     \midrule
     Banco de dados         & SQLite (arquivo local)  & PostgreSQL (contêiner) \\
-    Configuração           & \textit{Hard-coded}     & Variáveis de ambiente \\
+    Config. do ambiente    & Hard-coded     & Variáveis de ambiente \\
     Ambiente de execução   & Máquina local           & Docker / Docker Compose \\
-    Reprodutibilidade      & Baixa                   & Alta \\
     Escalabilidade         & Limitada                & Horizontal (contêineres) \\
     \bottomrule
   \end{tabular}
@@ -152,8 +158,7 @@ desejado após a refatoração.
         aplicação pronta para cenários de produção.
   \item \textbf{Ambiente padronizado:} Com Docker e Docker Compose, qualquer membro
         da equipe pode reproduzir o ambiente completo (API + banco) com um único
-        comando (\texttt{docker-compose up}), eliminando problemas do tipo
-        \textit{``funciona na minha máquina''}.
+        comando \texttt{docker-compose up}.
   \item \textbf{Facilidade de deploy:} A conteinerização permite integração direta
         com pipelines de CI/CD e plataformas de orquestração como Kubernetes, AWS ECS
         ou Google Cloud Run.
@@ -564,25 +569,25 @@ banco, \texttt{(healthy)}.
 Abra \texttt{http://localhost:5000} no navegador. A página de listagem de usuários
 deve ser exibida corretamente, sem erros.
 
-\subsubsection{Teste 3 — Testar o CRUD via linha de comando}
+% \subsubsection{Teste 3 — Testar o CRUD via linha de comando}
 
-\begin{lstlisting}[language=bash, caption={Testes CRUD via \texttt{curl}.}]
-# Teste de leitura (GET na página inicial)
-curl -s -o /dev/null -w "%{http_code}" http://localhost:5000/
-# Esperado: 200
+% \begin{lstlisting}[language=bash, caption={Testes CRUD via \texttt{curl}.}]
+% # Teste de leitura (GET na página inicial)
+% curl -s -o /dev/null -w "%{http_code}" http://localhost:5000/
+% # Esperado: 200
 
-# Teste de criação (POST para adicionar usuário)
-curl -X POST http://localhost:5000/add \
-  -d "name=Teste&city=Brasilia&contact=teste@email.com" \
-  -w "\n%{http_code}"
-# Esperado: 302 (redirect após criação bem-sucedida)
+% # Teste de criação (POST para adicionar usuário)
+% curl -X POST http://localhost:5000/add \
+%   -d "name=Teste&city=Brasilia&contact=teste@email.com" \
+%   -w "\n%{http_code}"
+% # Esperado: 302 (redirect após criação bem-sucedida)
 
-# Teste de leitura após criação
-curl -s http://localhost:5000/ | grep "Teste"
-# Esperado: o nome "Teste" deve aparecer no HTML retornado
-\end{lstlisting}
+% # Teste de leitura após criação
+% curl -s http://localhost:5000/ | grep "Teste"
+% # Esperado: o nome "Teste" deve aparecer no HTML retornado
+% \end{lstlisting}
 
-\subsubsection{Teste 4 — Verificar conexão com o PostgreSQL}
+\subsubsection{Teste 3 — Verificar conexão com o PostgreSQL}
 
 \begin{lstlisting}[language=bash, caption={Verificação direta no banco PostgreSQL.}]
 docker compose exec db psql -U flask_user -d flask_crud -c "\dt"
@@ -591,7 +596,7 @@ docker compose exec db psql -U flask_user -d flask_crud -c "\dt"
 \textbf{Resultado esperado:} A tabela \texttt{user} deve aparecer listada,
 confirmando que o SQLAlchemy criou o esquema corretamente no PostgreSQL.
 
-\subsubsection{Teste 5 — Verificar logs da aplicação}
+\subsubsection{Teste 4 — Verificar logs da aplicação}
 
 \begin{lstlisting}[language=bash, caption={Inspeção de logs para identificar erros.}]
 docker compose logs web
@@ -648,9 +653,10 @@ funciona normalmente com SQLite.
 % --------------------------------------------------------------------------
 \subsection{Resumo do Fluxo de Rollback}
 
-\begin{table}[h!]
+\begin{table}[h]
   \centering
   \caption{Resumo dos comandos de rollback.}
+  \vspace{0.4em}
   \label{tab:rollback}
   \begin{tabular}{clp{7cm}}
     \toprule
