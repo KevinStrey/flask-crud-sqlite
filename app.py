@@ -53,23 +53,39 @@ def add_user():
 
 @app.route("/edit/<int:id>", methods=['GET', 'POST'])
 def edit_user(id):
-    user = User.query.get_or_404(id)
+    user = db.get_or_404(User, id)
     if request.method == "POST":
         user.name = request.form['name']
         user.city = request.form['city']
         user.contact = request.form['contact']
-        db.session.commit()
-        return redirect(url_for('index'))
+        try:
+            db.session.commit()
+            return redirect(url_for('index'))
+        except Exception:
+            db.session.rollback()
+            return 'Error editing User!'
     return render_template("edit_user.html", user=user)
 
 
 @app.route("/delete/<int:id>")
 def delete_user(id):
-    user = User.query.get_or_404(id)
-    db.session.delete(user)
-    db.session.commit()
-    return redirect(url_for('index'))
+    user = db.get_or_404(User, id)
+    try:
+        db.session.delete(user)
+        db.session.commit()
+        return redirect(url_for('index'))
+    except Exception:
+        db.session.rollback()
+        return 'Error deleting User!'
 
 
 if __name__ == "__main__":
+    import sys
+    if len(sys.argv) > 1 and sys.argv[1] == "test":
+        import unittest
+        loader = unittest.TestLoader()
+        suite = loader.discover('.', pattern='test_*.py')
+        runner = unittest.TextTestRunner(verbosity=2)
+        result = runner.run(suite)
+        sys.exit(0 if result.wasSuccessful() else 1)
     app.run(debug=True, host='0.0.0.0')

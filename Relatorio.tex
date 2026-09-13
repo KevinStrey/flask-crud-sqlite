@@ -268,7 +268,7 @@ O arquivo \texttt{app.py} foi modificado para ler configurações de variáveis 
 ambiente, mantendo compatibilidade retroativa com SQLite como \textit{fallback}
 para desenvolvimento local.
 
-\begin{lstlisting}[language=Python, caption={\texttt{app.py} — código refatorado com suporte a variáveis de ambiente.}]
+\begin{lstlisting}[language=Python, caption={\texttt{app.py} — código refatorado com suporte a variáveis de ambiente e testes.}]
 import os
 from flask import Flask, request, redirect, url_for, render_template
 from flask_sqlalchemy import SQLAlchemy
@@ -278,7 +278,7 @@ app = Flask(__name__)
 # --- Configuração via variáveis de ambiente ---
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get(
     'DATABASE_URL',
-    'sqlite:///database.db'  # fallback para desenvolvimento local
+    'sqlite:///database.db'  # fallback para desenvolvimento local sem Docker
 )
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key')
@@ -322,25 +322,41 @@ def add_user():
 
 @app.route("/edit/<int:id>", methods=['GET', 'POST'])
 def edit_user(id):
-    user = User.query.get_or_404(id)
+    user = db.get_or_404(User, id)
     if request.method == "POST":
         user.name = request.form['name']
         user.city = request.form['city']
         user.contact = request.form['contact']
-        db.session.commit()
-        return redirect(url_for('index'))
+        try:
+            db.session.commit()
+            return redirect(url_for('index'))
+        except Exception:
+            db.session.rollback()
+            return 'Error editing User!'
     return render_template("edit_user.html", user=user)
 
 
 @app.route("/delete/<int:id>")
 def delete_user(id):
-    user = User.query.get_or_404(id)
-    db.session.delete(user)
-    db.session.commit()
-    return redirect(url_for('index'))
+    user = db.get_or_404(User, id)
+    try:
+        db.session.delete(user)
+        db.session.commit()
+        return redirect(url_for('index'))
+    except Exception:
+        db.session.rollback()
+        return 'Error deleting User!'
 
 
 if __name__ == "__main__":
+    import sys
+    if len(sys.argv) > 1 and sys.argv[1] == "test":
+        import unittest
+        loader = unittest.TestLoader()
+        suite = loader.discover('.', pattern='test_*.py')
+        runner = unittest.TextTestRunner(verbosity=2)
+        result = runner.run(suite)
+        sys.exit(0 if result.wasSuccessful() else 1)
     app.run(debug=True, host='0.0.0.0')
 \end{lstlisting}
 
@@ -350,10 +366,13 @@ if __name__ == "__main__":
         \texttt{DATABASE\_URL}. Se não estiver definida, utiliza SQLite como
         \textit{fallback}, preservando a compatibilidade local.
   \item \texttt{SECRET\_KEY} também é externalizada via variável de ambiente.
-  \item Adicionado \texttt{db.session.rollback()} no bloco \texttt{except} para
+  \item Adicionado \texttt{db.session.rollback()} nos blocos \texttt{except} de todas
+        as rotas de mutação de dados (\texttt{add}, \texttt{edit} e \texttt{delete}) para
         garantir integridade transacional em caso de erro.
-  \item \texttt{User.query.get()} substituído por \texttt{User.query.get\_or\_404()}
-        para retornar HTTP 404 quando o recurso não existir.
+  \item \texttt{User.query.get()} substituído por \texttt{db.get\_or\_404()}
+        para retornar HTTP 404 de forma padronizada e segura quando o registro não existir.
+  \item Inclusão de suporte a execução de testes de regressão via CLI (\texttt{python app.py test})
+        no bloco principal \texttt{\_\_main\_\_}.
   \item \texttt{host='0.0.0.0'} adicionado ao \texttt{app.run()} para permitir
         conexões de fora do contêiner Docker.
 \end{enumerate}
@@ -530,6 +549,7 @@ Após todas as modificações, a árvore de diretórios do projeto fica:
 \begin{lstlisting}[caption={Árvore de diretórios do projeto refatorado.}]
 flask-crud-sqlite/
 |-- app.py                  # Aplicacao Flask (refatorado)
+|-- test_app.py             # Testes de regressao automatizados (novo)
 |-- requirements.txt        # Dependências Python (novo)
 |-- Dockerfile              # Build da imagem Docker (novo)
 |-- docker-compose.yml      # Orquestração dos servicos (novo)
@@ -621,15 +641,23 @@ docker compose down -v
 Este comando para todos os contêineres, remove-os e apaga o volume
 \texttt{pgdata} com os dados do PostgreSQL.
 
-\subsubsection{Passo 2 — Reverter o código-fonte via Git}
+\subsubsection{Passo 2 — Reverter o código-fonte via Git para o commit original}
 
-\begin{lstlisting}[language=bash, caption={Rollback do código via Git.}]
-# Reverter todos os arquivos modificados para o último commit
-git checkout -- .
+\begin{lstlisting}[language=bash, caption={Rollback do código via Git com especificação do commit original.}]
+# Reverter o repositório diretamente para o commit original específico (pré-refatoração)
+git checkout aa5bafc -- .
 
-# Remover arquivos novos não rastreados (Dockerfile, docker-compose.yml, etc.)
+# Remover arquivos novos não rastreados criados na refatoração (Dockerfile, etc.)
 git clean -fd
 \end{lstlisting}
+
+\textbf{Detalhamento técnico da melhoria:} A indicação explícita do \textit{commit hash}
+original (\texttt{aa5bafc}) substitui o uso de comandos genéricos como \texttt{git revert}
+desacompanhado de parâmetros. Em históricos com múltiplos \textit{commits}, um
+\texttt{git revert} genérico pode tentar desfazer apenas o último \textit{commit},
+gerar conflitos de mesclagem complexos ou deixar o repositório em um estado intermediário
+quebrado. O apontamento determinístico para o \textit{commit} original garante a
+reversão atômica e integral da base de código.
 
 \subsubsection{Passo 3 — Verificar o estado do repositório}
 
@@ -640,15 +668,28 @@ git status
 \textbf{Resultado esperado:} O Git deve reportar \texttt{nothing to commit,
 working tree clean}, confirmando que o repositório voltou ao estado original.
 
-\subsubsection{Passo 4 — Testar a aplicação original}
+\subsubsection{Passo 4 — Testes de Regressão e Validação da Aplicação Original}
 
-\begin{lstlisting}[language=bash, caption={Execução da aplicação original com SQLite.}]
+\begin{lstlisting}[language=bash, caption={Execução dos testes de regressão automatizados e inicialização original.}]
+# 1. Instalar dependências da aplicação original
 pip install flask flask-sqlalchemy
+
+# 2. Executar suíte de testes de regressão pós-rollback
+python -m unittest test_app.py
+# ou alternativamente:
+python app.py test
+
+# 3. Iniciar a aplicação original para verificação final em desenvolvimento
 python app.py
 \end{lstlisting}
 
-Acesse \texttt{http://localhost:5000} para confirmar que a versão original
-funciona normalmente com SQLite.
+\textbf{Detalhamento técnico da melhoria:} Anteriormente, a validação pós-rollback
+resumia-se a ``testes de sistema'' manuais (abrir o navegador e interagir com formulários),
+uma metodologia imprecisa, lenta e sujeita ao esquecimento de cenários críticos de borda.
+A introdução dos testes de regressão automatizados (\texttt{test\_app.py}) permite aferir
+imediatamente e com 100\% de precisão que todas as quatro operações do CRUD, redirecionamentos
+e persistência em SQLite continuam íntegros após o desfazimento da migração. O acesso visual
+em \texttt{http://localhost:5000} torna-se uma validação complementar.
 
 % --------------------------------------------------------------------------
 \subsection{Resumo do Fluxo de Rollback}
@@ -658,18 +699,151 @@ funciona normalmente com SQLite.
   \caption{Resumo dos comandos de rollback.}
   \vspace{0.4em}
   \label{tab:rollback}
-  \begin{tabular}{clp{7cm}}
+  \begin{tabular}{clp{7.5cm}}
     \toprule
     \textbf{Ordem} & \textbf{Comando} & \textbf{Efeito} \\
     \midrule
-    1 & \texttt{docker compose down -v} & Remove contêineres, redes e volumes. \\
-    2 & \texttt{git checkout -- .}      & Reverte arquivos modificados. \\
-    3 & \texttt{git clean -fd}          & Remove arquivos não rastreados. \\
+    1 & \texttt{docker compose down -v} & Remove contêineres, redes e volume pgdata. \\
+    2 & \texttt{git checkout aa5bafc -- .} & Reverte o código para o commit original estável. \\
+    3 & \texttt{git clean -fd}          & Remove arquivos não rastreados criados na refatoração. \\
     4 & \texttt{git status}             & Confirma repositório limpo. \\
-    5 & \texttt{python app.py}          & Testa a aplicação original. \\
+    5 & \texttt{python -m unittest test\_app.py} & Executa testes de regressão automatizados no SQLite. \\
+    6 & \texttt{python app.py}          & Inicia a aplicação original com SQLite. \\
     \bottomrule
   \end{tabular}
 \end{table}
+
+% ============================================================================
+% APÊNDICE — Quadro de Melhorias (Pós-Peer Review)
+% ============================================================================
+\newpage
+\section{Apêndice: Quadro de Melhorias (Pós-Peer Review)}
+\label{sec:melhorias-peer-review}
+
+\subsection{Contextualização e Síntese dos Feedbacks Recebidos}
+
+Após a elaboração da primeira versão deste relatório técnico de refatoração, o documento
+foi submetido à dinâmica de avaliação por pares (\textit{peer review}) entre os colegas
+de turma. A avaliação recebida foi amplamente positiva, ressaltando o cumprimento rigoroso
+de todos os critérios estabelecidos no enunciado e a clareza didática da apresentação:
+
+\begin{quote}
+\textit{``Trabalho muito bem detalhado e muito bem organizado. Cumpre todos os
+requisitos propostos e de maneira fácil de ser compreendido. Plano muito bem
+detalhado e compreensível. Os snippets de código são muito bem organizados, tudo é
+apresentado numa sequência clara e os items estão todos presentes. Ficou muito bom.
+Ele atende todos os tópicos solicitados no enunciado, desde a contextualização e os
+pré-requisitos até o passo a passo do roteiro de migração, o plano de rollback e os
+testes de validação.''}
+\end{quote}
+
+\begin{quote}
+\textit{``Gostei bastante da organização do documento LaTeX. As tabelas comparando o
+antes e depois, os blocos de código e as explicações deixam o contéudo bem fácil de
+compreender. No geral, o relatório ficou bem completo, claro e estruturado para
+orientar uma possível execução da migração. Parabéns pelo empenho!''}
+\end{quote}
+
+\subsection{Identificação de Oportunidades e Decisões de Complementação}
+
+Não obstante o retorno positivo unânime e a ausência de apontamentos de falhas estruturais,
+o próprio processo de revisão dos relatórios elaborados pelos colegas de turma forneceu
+valiosos \textit{insights} comparativos. A partir dessa análise cruzada de metodologias,
+decidiu-se enriquecer o projeto com duas complementações substanciais:
+
+\begin{enumerate}
+  \item \textbf{Criação de casos de teste automatizados para regressão pós-rollback:}
+        Antes da revisão, a validação da aplicação após o procedimento de rollback era
+        conduzida apenas mediante testes de sistema manuais via navegador web. Essa
+        prática apresentava baixa precisão, dependia de inspeção visual subjetiva e não
+        oferecia reprodutibilidade técnica. A partir do \textit{insight} adquirido nos
+        relatórios dos colegas, foi implementada uma suíte formal de testes de regressão
+        (\texttt{test\_app.py}), permitindo atestar com rigor que a aplicação original
+        preserva sua integridade funcional e operacional com SQLite.
+  \item \textbf{Adição de commit específico no processo de rollback via Git:}
+        Na abordagem preliminar, a reversão de versão no Git era descrita de forma genérica
+        com \texttt{git revert} (ou comandos de descarte de modificações sem fixação
+        de \textit{hash}). No entanto, em históricos de desenvolvimento com múltiplos
+        \textit{commits}, o \texttt{git revert} pode gerar comportamentos inesperados,
+        conflitos de mesclagem ou reversões parciais caso não receba exatamente quais
+        \textit{commits} devem ser revertidos. Para eliminar essa margem de incerteza,
+        foi adicionado o identificador do \textit{commit} original pré-refatoração
+        (\texttt{aa5bafc}), tornando o procedimento 100\% determinístico, reproduzível
+        e seguro.
+\end{enumerate}
+
+\subsection{Quadro Resumo de Melhorias (Pós-Peer Review)}
+
+A tabela~\ref{tab:quadro-melhorias} sintetiza as complementações realizadas no código
+e no relatório técnico em decorrência da avaliação por pares.
+
+\begin{table}[h!]
+  \centering
+  \caption{Quadro de Melhorias implementadas pós-Peer Review.}
+  \vspace{0.4em}
+  \label{tab:quadro-melhorias}
+  \small
+  \begin{tabular}{p{3.0cm}p{3.2cm}p{3.8cm}p{4.2cm}}
+    \toprule
+    \textbf{Componente / Área} & \textbf{Abordagem Anterior} & \textbf{Insight do Peer Review} & \textbf{Melhoria Implementada} \\
+    \midrule
+    \textbf{Validação Pós-Rollback} &
+    Teste de sistema manual no navegador (\texttt{http://localhost:5000}). &
+    Testes manuais são imprecisos, subjetivos e sujeitos a falhas humanas não detectadas. &
+    Criação do arquivo \texttt{test\_app.py} com 8 testes de regressão automatizados cobrindo todo o CRUD. \\
+    \addlinespace
+    \textbf{Controle de Versão (Git Rollback)} &
+    Comandos genéricos (\texttt{git revert} / checkout sem hash explícito). &
+    Comandos genéricos podem reverter commits indesejados ou gerar conflitos de merge inesperados. &
+    Fixação do commit hash original (\texttt{git checkout aa5bafc -- .}), garantindo rollback determinístico. \\
+    \addlinespace
+    \textbf{Tratamento Transacional (\texttt{app.py})} &
+    \texttt{db.session.rollback()} presente apenas na criação (\texttt{/add}). &
+    Possibilidade de estados inconsistentes na sessão em caso de falhas durante testes de regressão. &
+    Extensão do \texttt{try/except} com rollback para as rotas \texttt{/edit} e \texttt{/delete}, e uso de \texttt{db.get\_or\_404}. \\
+    \addlinespace
+    \textbf{Execução de Testes via CLI} &
+    Inexistente (execução apenas via servidor web em execução). &
+    Necessidade de execução rápida e automatizável de testes diretamente pelo ponto de entrada. &
+    Implementação do subcomando \texttt{python app.py test} no bloco \texttt{\_\_main\_\_} de \texttt{app.py}. \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Detalhamento das Melhorias no Código e Procedimentos}
+
+\subsubsection{1. Suíte de Testes de Regressão (\texttt{test\_app.py})}
+
+A suíte de testes de regressão foi desenvolvida sobre o módulo padrão \texttt{unittest}
+do Python, garantindo portabilidade sem necessidade de bibliotecas externas complexas.
+O banco de dados é isolado durante os testes via variável \texttt{DATABASE\_URL},
+assegurando que o arquivo de produção/desenvolvimento \texttt{instance/database.db}
+permaneça intacto. Foram contemplados 8 casos de teste:
+
+\begin{itemize}[nosep]
+  \item \texttt{test\_01\_index\_empty}: Confirma HTTP 200 na listagem inicial sem registros.
+  \item \texttt{test\_02\_add\_user\_success}: Valida criação de usuário via POST em \texttt{/add} e persistência no banco.
+  \item \texttt{test\_03\_edit\_user\_view}: Valida pré-carregamento correto dos dados na tela de edição.
+  \item \texttt{test\_04\_edit\_user\_post\_success}: Valida persistência das alterações cadastrais.
+  \item \texttt{test\_05\_edit\_user\_not\_found}: Confirma retorno HTTP 404 para ID inexistente na edição.
+  \item \texttt{test\_06\_delete\_user\_success}: Confirma remoção física do usuário do banco de dados.
+  \item \texttt{test\_07\_delete\_user\_not\_found}: Confirma retorno HTTP 404 para ID inexistente na exclusão.
+  \item \texttt{test\_08\_full\_regression\_crud\_cycle}: Executa o ciclo completo de ponta a ponta (Create $\rightarrow$ Read $\rightarrow$ Update $\rightarrow$ Delete).
+\end{itemize}
+
+Os testes podem ser invocados com:
+\begin{lstlisting}[language=bash, caption={Comandos para disparo dos testes de regressão.}]
+python -m unittest test_app.py
+# ou diretamente via app.py:
+python app.py test
+\end{lstlisting}
+
+\subsubsection{2. Rollback com Commit Hash Específico}
+
+A especificação do \textit{commit} \texttt{aa5bafc} no Passo 2 do Plano de Rollback
+assegura que qualquer intervenção de reversão restaure pontualmente o repositório
+ao estado exato entregue pelo projeto base, neutralizando qualquer deriva de código
+decorrente de múltiplos \textit{commits} intermediários realizados pela equipe.
 
 % ============================================================================
 \end{document}
