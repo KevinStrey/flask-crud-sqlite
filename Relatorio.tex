@@ -790,7 +790,7 @@ e no relatório técnico em decorrência da avaliação por pares.
     \textbf{Validação Pós-Rollback} &
     Teste de sistema manual no navegador (\texttt{http://localhost:5000}). &
     Testes manuais são imprecisos, subjetivos e sujeitos a falhas humanas não detectadas. &
-    Criação do arquivo \texttt{test\_app.py} com 8 testes de regressão automatizados cobrindo todo o CRUD. \\
+    Criação do arquivo \texttt{test\_app.py} com 7 testes de regressão automatizados cobrindo todo o ciclo CRUD. \\
     \addlinespace
     \textbf{Controle de Versão (Git Rollback)} &
     Comandos genéricos (\texttt{git revert} / checkout sem hash explícito). &
@@ -818,17 +818,16 @@ A suíte de testes de regressão foi desenvolvida sobre o módulo padrão \textt
 do Python, garantindo portabilidade sem necessidade de bibliotecas externas complexas.
 O banco de dados é isolado durante os testes via variável \texttt{DATABASE\_URL},
 assegurando que o arquivo de produção/desenvolvimento \texttt{instance/database.db}
-permaneça intacto. Foram contemplados 8 casos de teste:
+permaneça intacto. Foram contemplados 7 casos de teste fundamentais:
 
 \begin{itemize}[nosep]
   \item \texttt{test\_01\_index\_empty}: Confirma HTTP 200 na listagem inicial sem registros.
   \item \texttt{test\_02\_add\_user\_success}: Valida criação de usuário via POST em \texttt{/add} e persistência no banco.
   \item \texttt{test\_03\_edit\_user\_view}: Valida pré-carregamento correto dos dados na tela de edição.
   \item \texttt{test\_04\_edit\_user\_post\_success}: Valida persistência das alterações cadastrais.
-  \item \texttt{test\_05\_edit\_user\_not\_found}: Confirma retorno HTTP 404 para ID inexistente na edição.
-  \item \texttt{test\_06\_delete\_user\_success}: Confirma remoção física do usuário do banco de dados.
-  \item \texttt{test\_07\_delete\_user\_not\_found}: Confirma retorno HTTP 404 para ID inexistente na exclusão.
-  \item \texttt{test\_08\_full\_regression\_crud\_cycle}: Executa o ciclo completo de ponta a ponta (Create $\rightarrow$ Read $\rightarrow$ Update $\rightarrow$ Delete).
+  \item \texttt{test\_05\_delete\_user\_success}: Confirma remoção do usuário do banco de dados e redirecionamento.
+  \item \texttt{test\_06\_multiple\_users\_persistence}: Valida inserção, contagem e persistência simultânea de múltiplos usuários.
+  \item \texttt{test\_07\_full\_regression\_crud\_cycle}: Executa o ciclo completo de ponta a ponta (Create $\rightarrow$ Read $\rightarrow$ Update $\rightarrow$ Delete).
 \end{itemize}
 
 Os testes podem ser invocados com:

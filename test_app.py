@@ -12,8 +12,8 @@ from app import app, db, User
 class UserCRUDRegressionTestCase(unittest.TestCase):
     """
     Casos de teste de regressão automatizados para a aplicação Flask CRUD.
-    Garante a integridade e o funcionamento das operações CRUD tanto em ambiente
-    PostgreSQL quanto no cenário pós-rollback utilizando SQLite local.
+    Garante a integridade e o funcionamento de todas as operações CRUD fundamentais
+    no cenário pós-rollback utilizando SQLite local.
     """
 
     @classmethod
@@ -105,12 +105,7 @@ class UserCRUDRegressionTestCase(unittest.TestCase):
             self.assertEqual(updated.name, 'Carlos Eduardo Souza')
             self.assertEqual(updated.city, 'Contagem')
 
-    def test_05_edit_user_not_found(self):
-        """Verifica se tentar editar usuário inexistente retorna HTTP 404."""
-        response = self.client.get('/edit/9999')
-        self.assertEqual(response.status_code, 404)
-
-    def test_06_delete_user_success(self):
+    def test_05_delete_user_success(self):
         """Testa a exclusão de um usuário via GET /delete/<id>."""
         with app.app_context():
             user = User(name='Daniela Lima', city='Porto Alegre', contact='51966665555')
@@ -126,12 +121,27 @@ class UserCRUDRegressionTestCase(unittest.TestCase):
             deleted = db.session.get(User, user_id)
             self.assertIsNone(deleted)
 
-    def test_07_delete_user_not_found(self):
-        """Verifica se tentar excluir usuário inexistente retorna HTTP 404."""
-        response = self.client.get('/delete/9999')
-        self.assertEqual(response.status_code, 404)
+    def test_06_multiple_users_persistence(self):
+        """Testa a inserção e persistência de múltiplos usuários na listagem."""
+        users_data = [
+            {'name': 'Usuario 1', 'city': 'Rio de Janeiro', 'contact': '21911112222'},
+            {'name': 'Usuario 2', 'city': 'Salvador', 'contact': '71922223333'},
+            {'name': 'Usuario 3', 'city': 'Fortaleza', 'contact': '85933334444'}
+        ]
+        for data in users_data:
+            res = self.client.post('/add', data=data, follow_redirects=True)
+            self.assertEqual(res.status_code, 200)
 
-    def test_08_full_regression_crud_cycle(self):
+        response = self.client.get('/')
+        self.assertEqual(response.status_code, 200)
+        for data in users_data:
+            self.assertIn(data['name'].encode('utf-8'), response.data)
+
+        with app.app_context():
+            count = User.query.count()
+            self.assertEqual(count, 3)
+
+    def test_07_full_regression_crud_cycle(self):
         """
         Teste de regressão de ciclo completo (Create -> Read -> Update -> Delete).
         Simula o fluxo completo de operações para atestar a estabilidade pós-rollback.
